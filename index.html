@@ -1,0 +1,106 @@
+<!doctype html>
+<html onselectstart="return false;">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimal-ui, maximum-scale=1.0, user-scalable=0">
+<meta name="keywords" content="Parking,Game"/>
+<title>Parking Game</title>
+<script src="levels.js?i=1"></script>
+<script src="pushing.js?i=1"></script>
+<script src="clipboard.min.js"></script>
+<style>
+    body, button, span {
+        font-size: 32px;
+        touch-action: manipulation;
+    }
+    body,html {
+        -webkit-user-select: none;
+        user-select: none;
+        position: fixed;
+    }
+    td {
+        padding-top:10px;
+    }
+</style>
+</head>
+<body onload="loadinit()">
+    <canvas id="canvas" width="800" height="700" style="margin:0px;float:left"></canvas>
+    <table id="tbl">
+        <tr><td>
+            Level <span id="level"></span><br/>
+        </td></tr>
+        <tr><td>
+            <button onclick="javascript:previous()" style="padding:10px;">&lt;&lt;&lt;</button>
+            <button onclick="javascript:next()" style="padding:10px;">&gt;&gt;&gt;</button>
+        </td></tr>
+        <tr><td>
+            <button onclick="javascript:restart()" style="padding:10px;">restart</button>
+        </td></tr>
+        <tr><td>
+            Move <span id="moveNumber"></span><br/>
+        </td></tr>
+        <tr><td>
+            <button onclick="javascript:edit()" style="padding:10px;">edit</button><br/>
+        </td></tr>
+        <tr><td>
+            <button onclick="javascript:empty()" style="padding:10px;">empty</button><br/>
+        </td></tr>
+        <tr><td>
+            <button class="btn" onclick="javascript:copy()" style="padding:10px;">copy</button><br/>
+        </td></tr>
+    </table>
+</body>
+<script>
+    let curLevel = localStorage.getItem("pushingId");
+	if(curLevel == undefined) {
+		curLevel = 0
+	} else {
+		curLevel = parseInt(curLevel)
+    }
+    
+    
+    level.innerHTML = curLevel + 1
+    moveNumber.innerHTML = '0'
+    
+    function next() {
+        if(curLevel < levels.length - 1) {
+            curLevel++
+            level.innerHTML = curLevel + 1
+            restart()
+            localStorage.setItem("pushingId", curLevel);
+        }
+    }
+    function previous() {
+        if(curLevel > 0) {
+            curLevel--
+            level.innerHTML = curLevel + 1
+            restart()
+            localStorage.setItem("pushingId", curLevel);
+        }
+    }
+
+    function copy() {
+        new ClipboardJS('.btn', {
+            text: function() {
+                let out = "\t[\n"
+                for(let g of grids) {
+                    if(!g) {
+                        continue
+                    }
+                    out += '\t\t['
+                    for(let g2 of g) {
+                        if(g2 == undefined) {
+                            out += 0 + ', '
+                        } else {
+                            out += g2 + ', '
+                        }
+                    }
+                    out += '],\n'
+                }
+                out += "\t],"
+                return out;
+            }
+        });
+    }
+</script>
+</html>
