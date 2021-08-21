@@ -1,7 +1,7 @@
 
 let ctx, grid = 43, images = {}, manX, manY, curCar, touchable = false, grids=[], curMove, editMode = false, solving = false
 let targets
-let touchX, touchY, backupCars = []
+let touchX, touchY, tiles = []
 
 window.addEventListener('keydown', function(event) {
 	let nextX = manX, nextY = manY
@@ -96,7 +96,7 @@ function init(c, boardW, boardH, exitX, exitY) {
 	}
 	curMove = 0
 	moveNumber.innerHTML = curMove
-	// updateBoard()
+
 	drawAll()
 }
 
@@ -148,7 +148,7 @@ function drawBackup() {
 	let startY = 0.5;
 	for(let i = 0;i < 7;i++) {
 		draw(i, grid * 16.0, grid * startY, grid, grid)
-		backupCars.push([16.0, startY, grid, grid, i])
+		tiles.push([16.0, startY, grid, grid, i])
 		startY += 1
 	}
 }
@@ -165,23 +165,23 @@ function touchstart(ex, ey) {
 	if(editMode) {
 		let x = ex / grid
 		let y = ey / grid
-		for(let [index, car] of backupCars.entries()) {
+		for(let [index, car] of tiles.entries()) {
 			if(x >= car[0] && x < car[2] + car[0] &&
 				y >= car[1] && y < car[3] + car[1]) {
 				curCar = car[4]
 			}
 		}
-		addGrid(ex, ey, curCar)
+		addTile(ex, ey, curCar)
 	}
 }
 
 function touchmove(ex, ey) {
 	if(editMode) {
-		addGrid(ex, ey, curCar)
+		addTile(ex, ey, curCar)
 	}
 }
 
-function addGrid(ex, ey, curCar) {
+function addTile(ex, ey, curCar) {
 	let x = Math.floor(ex / grid)
 	let y = Math.floor(ey / grid)
 	if(x >= 0 && y >= 0 && x < 16 & y < 16) {
@@ -195,11 +195,6 @@ function addGrid(ex, ey, curCar) {
 	}
 }
 
-// update board occupied
-function updateBoard() {
-	board = updateBoardBase(cars)
-}
-
 let historyMoves, win, winMoves
 async function solve() {
 	if(solving) {
@@ -209,20 +204,22 @@ async function solve() {
 	historyMoves = {}
 	win = false
 	winMoves = []
-	let pc = tryAllMoves(cars, 0)
+	let pc = tryAllMoves()
 	if(!pc) {
 		return;
 	}
-	while(pc[0] != -1) {
-		winMoves.unshift(pc[2])
-		pc = pc[3]
+	while(pc.last) {
+		winMoves.unshift(pc)
+		pc = pc.last
 	}
 	solving = true
-	for(let [index, cars2] of winMoves.entries()) {
+	for(let [index, move] of winMoves.entries()) {
 		if(!solving) {
 			return;
 		}
-		cars = cars2
+		grids = move.grid
+		manX = move.man[1]
+		manY = move.man[0]
 		drawAll()
 		moveNumber.innerHTML = index + 1
 		await sleep(500)
@@ -230,115 +227,66 @@ async function solve() {
 	solving = false
 }
 
-function tryAllMoves(carsInit, level) {
-	let possibleMoves = [[-1, 0, carsInit, null, 1]]
+allDeadEnds = {}
+function tryAllMoves() {
+	let move = new Move(grids, [manY, manX])
+	move.initBox()
+	let calcMove = move.clone()
+	allDeadEnds = calcMove.deadend()
+
+	let possibleMoves = [move]
 	let cnt = 0;
 	while(possibleMoves.length > 0) {
-		if(++cnt > 50000) {
+		if(++cnt > 500000) {
 			alert('too many tries')
 			return;
 		}
 		let pc = possibleMoves.shift()
-		let cars = pc[2]
-
-		let board = updateBoardBase(cars)
-		if(board[7][3] == 1) {
+		
+		if(pc.isWin()) {
 			win = true
 			return pc;
 		}
+		let grid = pc.calcGrid()
+		if(!isNewMove(pc)) {
+			continue
+		}
 
-		for(let i = 0;i < cars.length;i++) {
-			let car = cars[i]
-	
-			if(car[2][0] == 1) {	// vertical
-				if(board[car[0]][car[1] + car[2][1]] == 0) {
-					car[1]++
-					if(isNewMove(cars)) {
-						possibleMoves.push([i, 1, copyCars(cars), pc, pc[4] + 1]);
-					}
-					car[1]--
-				}
-				if(board[car[0]][car[1] - 1] == 0) {
-					car[1]--
-					if(isNewMove(cars)) {
-						possibleMoves.push([i, 2, copyCars(cars), pc, pc[4] + 1]);
-					}
-					car[1]++
-				}
-			} else {
-				if(board[car[0] + car[2][0]][car[1]] == 0) {
-					car[0]++
-					if(isNewMove(cars)) {
-						possibleMoves.push([i, 3, copyCars(cars), pc, pc[4] + 1]);
-					}
-					car[0]--
-				}
-				if(board[car[0] - 1][car[1]] == 0) {
-					car[0]--
-					if(isNewMove(cars)) {
-						possibleMoves.push([i, 4, copyCars(cars), pc, pc[4] + 1]);
-					}
-					car[0]++
-				}
-			}
+		for(let i = 0;i < pc.boxes.length;i++) {
+			tryBox(pc, grid, i, 1, 0, possibleMoves)
+			tryBox(pc, grid, i, -1, 0, possibleMoves)
+			tryBox(pc, grid, i, 0, 1, possibleMoves)
+			tryBox(pc, grid, i, 0, -1, possibleMoves)
 		}
 	}
 	
 }
 
-function isNewMove(cars) {
-	let hash = genHash(cars);
+function tryBox(move, grid, boxIndex, dx, dy, possibleMoves) {
+	let curBox = move.boxes[boxIndex]
+	let x = curBox[0], y = curBox[1]
+	let x2 = x + dx, y2 = y + dy
+	if((grid[x2][y2] == floor || grid[x2][y2] == passed) && grid[x-dx][y-dy] == passed) {
+		if(allDeadEnds[x2 + '-' + y2]) {
+			return
+		}
+		let next = move.clone()
+		next.last = move	// link them together
+		next.man = [x, y]
+		next.boxes[boxIndex] = [x2, y2]
+		next.grid[x][y] = floor
+		next.grid[x2][y2] = box
+		possibleMoves.push(next)
+	}
+}
+
+function isNewMove(move) {
+	let hash = move.hash();
 	if(historyMoves[hash]) {
 		return false
 	}
 	historyMoves[hash] = 1;
 	return true;
-}
-
-function updateBoardBase(cars, excludeCar) {
-	let board = [
-		[1,1,1,1,1,1,1,1,1],
-		[1,0,0,0,0,0,0,1,1],
-		[1,0,0,0,0,0,0,1,1],
-		[1,0,0,0,0,0,0,1,1],
-		[1,0,0,0,0,0,0,1,1],
-		[1,0,0,0,0,0,0,1,1],
-		[1,0,0,0,0,0,0,1,1],
-		[1,1,1,0,1,1,1,1,1],
-		[1,1,1,1,1,1,1,1,1],
-	]
-	for(let car of cars) {
-		if(car == excludeCar) {
-			continue;
-		}
-		if(car[2][0] == 1) {	// vertical
-			for(let y = 0;y < car[2][1];y++) {
-				board[car[0]][car[1] + y] = 1
-			}
-		} else {
-			for(let x = 0;x < car[2][0];x++) {
-				board[car[0] + x][car[1]] = 1
-			}
-		}
-	}
-	return board;
-}
-
-function genHash(cars) {
-	let ret = new Array();
-	for(let car of cars) {
-		ret.push(car[0])
-		ret.push(car[1])
-	}
-	return ret.join('')
-}
-
-function copyCars(cars) {
-	let cars2 = []
-	for(let car of cars) {
-		cars2.push([car[0], car[1], car[2]])
-	}
-	return cars2
 }
 
 
@@ -362,4 +310,107 @@ function loadImages(sources, callback){
 
 function sleep(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// data for each move while solving
+class Move {
+	constructor(grid, man, boxes) {
+		this.grid = grid
+		this.man = man
+		this.boxes = boxes
+	}
+
+	initBox() {
+		this.boxes = []
+		for(let i = 0;i < this.grid.length;i++) {
+			for(let j = 0;j < this.grid[i].length;j++) {
+				if(this.grid[i][j] == box) {
+					this.boxes.push([i, j])
+				}
+			}
+		}
+	}
+
+	isWin() {
+		for(let i of targets) {
+			if(this.grid[i[1]][i[0]] != box) {
+				return false
+			}
+		}
+		return true
+	}
+	hash() {
+		let ret = new Array();
+		ret.push(this.topleft[0])
+		ret.push(this.topleft[1])
+		ret.push('-')
+		for(let box of this.boxes) {
+			if(!box) debugger
+			ret.push(box[0])
+			ret.push(box[1])
+		}
+		return ret.join('')
+	}
+	clone() {
+		let grid = []
+		for(let [index,i] of this.grid.entries()) {
+			grid[index] = [...i]
+		}
+		let boxes = []
+		for(let [index,i] of this.boxes.entries()) {
+			boxes[index] = [...i]
+		}
+		return new Move(grid, man, boxes)
+	}
+	calcGrid() {
+		let grid = []
+		this.topleft = [...this.man]
+		for(let [index,i] of this.grid.entries()) {
+			grid[index] = [...i]
+		}
+		grid[this.man[0]][this.man[1]] = passed
+		let possibles = [this.man]
+		for(let i = 0;i < 1000 && possibles.length > 0;i++) {
+			let cur = possibles.shift()
+			this.tryPos(possibles, grid, cur[0] + 1, cur[1])
+			this.tryPos(possibles, grid, cur[0] - 1, cur[1])
+			this.tryPos(possibles, grid, cur[0], cur[1] + 1)
+			this.tryPos(possibles, grid, cur[0], cur[1] - 1)
+		}
+
+		return grid
+	}
+
+	tryPos(possibles, grid, x, y) {
+		if(grid[x][y] == floor) {
+			grid[x][y] = passed
+			possibles.push([x, y])
+			if(x < this.topleft[0] || x == this.topleft[0] && y < this.topleft[1]) {
+				this.topleft[0] = x
+				this.topleft[1] = y
+			}
+		}
+	}
+
+	// get all deadends
+	deadend() {
+		for(let i of targets) {
+			this.grid[i[1]][i[0]] = target
+		}
+		let d = {}
+		for(let i = 0;i < this.grid.length;i++) {
+			for(let j = 0;j < this.grid[i].length;j++) {
+				if(this.grid[i][j] == floor) {
+					let f1 = this.grid[i + 1][j] == wall
+					let f2 = this.grid[i][j + 1] == wall
+					let f3 = this.grid[i - 1][j] == wall
+					let f4 = this.grid[i][j - 1] == wall
+					if(f1 && f2 || f2 && f3 || f3 && f4 || f4 && f1) {
+						d[i + '-' + j] = 1
+					}
+				}
+			}
+		}
+		return d
+	}
 }
