@@ -1,5 +1,5 @@
 
-let ctx, grid = 43, images = {}, manX, manY, curCar, touchable = false, grids=[], curMove, editMode = false, solving = false
+let ctx, grid = 60, images = {}, manX, manY, curCar, touchable = false, grids=[], curMove, editMode = false, solving = false
 let targets
 let touchX, touchY, tiles = []
 
@@ -118,13 +118,10 @@ function empty() {
 	grids = []
 	targets = []
 	drawAll()
-	if(editMode) {
-		drawBackup()
-	}
 }
 
 function drawAll() {
-	ctx.clearRect(0,0,650,650); 
+	ctx.clearRect(0,0,750,750); 
 	for(let i = 0;i < grids.length;i++) {
 		if(grids[i]) {
 			for(let j = 0;j < grids[i].length;j++) {
@@ -142,13 +139,17 @@ function drawAll() {
 		}
 		draw(man, grid * manX, grid * manY, grid, grid)
 	}
+	
+	if(editMode) {
+		drawBackup()
+	}
 }
 
 function drawBackup() {
 	let startY = 0.5;
 	for(let i = 0;i < 7;i++) {
-		draw(i, grid * 16.0, grid * startY, grid, grid)
-		tiles.push([16.0, startY, grid, grid, i])
+		draw(i, grid * 12.0, grid * startY, grid, grid)
+		tiles.push([12.0, startY, grid, grid, i])
 		startY += 1
 	}
 }
@@ -184,7 +185,7 @@ function touchmove(ex, ey) {
 function addTile(ex, ey, curCar) {
 	let x = Math.floor(ex / grid)
 	let y = Math.floor(ey / grid)
-	if(x >= 0 && y >= 0 && x < 16 & y < 16) {
+	if(x >= 0 && y >= 0 && x < 12 & y < 12) {
 		if(!grids[y]) {
 			grids[y] = []
 		}
@@ -214,14 +215,22 @@ async function solve() {
 	}
 	solving = true
 	for(let [index, move] of winMoves.entries()) {
-		if(!solving) {
-			return;
+		if(move.direction) {
+			let path = getPath(grids, move.man[1] - move.direction[1], move.man[0] - move.direction[0])
+			for(let step of path) {
+				if(!solving) return;
+				manX = step[1]
+				manY = step[0]
+				drawAll()
+				await sleep(300)
+			}
+			if(!solving) return;
 		}
+
 		grids = move.grid
 		manX = move.man[1]
 		manY = move.man[0]
 		drawAll()
-		moveNumber.innerHTML = index + 1
 		await sleep(500)
 	}
 	solving = false
@@ -276,6 +285,7 @@ function tryBox(move, grid, boxIndex, dx, dy, possibleMoves) {
 		next.boxes[boxIndex] = [x2, y2]
 		next.grid[x][y] = floor
 		next.grid[x2][y2] = box
+		next.direction = [dx, dy]
 		possibleMoves.push(next)
 	}
 }
@@ -345,22 +355,15 @@ class Move {
 		ret.push(this.topleft[1])
 		ret.push('-')
 		for(let box of this.boxes) {
-			if(!box) debugger
 			ret.push(box[0])
 			ret.push(box[1])
 		}
 		return ret.join('')
 	}
 	clone() {
-		let grid = []
-		for(let [index,i] of this.grid.entries()) {
-			grid[index] = [...i]
-		}
-		let boxes = []
-		for(let [index,i] of this.boxes.entries()) {
-			boxes[index] = [...i]
-		}
-		return new Move(grid, man, boxes)
+		let grid = cloneArray(this.grid)
+		let boxes = cloneArray(this.boxes)
+		return new Move(grid, undefined, boxes)
 	}
 	calcGrid() {
 		let grid = []
@@ -413,4 +416,42 @@ class Move {
 		}
 		return d
 	}
+}
+
+function getPath(grid, destX, destY) {
+	let path = []
+	grid = cloneArray(grid)
+
+	grid[manY][manX] = passed
+	let possibles = [[manY, manX]]
+	for(let i = 0;i < 1000 && possibles.length > 0;i++) {
+		let cur = possibles.shift()
+		if(cur[0] == destY && cur[1] == destX) {
+			while(cur[2]) {
+				path.unshift(cur)
+				cur = cur[2]
+			}
+			return path
+		}
+		tryPath(possibles, grid, cur[0] + 1, cur[1], cur)
+		tryPath(possibles, grid, cur[0] - 1, cur[1], cur)
+		tryPath(possibles, grid, cur[0], cur[1] + 1, cur)
+		tryPath(possibles, grid, cur[0], cur[1] - 1, cur)
+	}
+	return path
+}
+
+function tryPath(possibles, grid, x, y, cur) {
+	if(grid[x][y] == floor) {
+		grid[x][y] = passed
+		possibles.push([x, y, cur])
+	}
+}
+
+function cloneArray(arr) {
+	let arr2 = []
+	for(let [index,i] of arr.entries()) {
+		arr2[index] = [...i]
+	}
+	return arr2
 }
