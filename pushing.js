@@ -4,6 +4,7 @@ let targets
 let touchX, touchY, tiles = []
 
 window.addEventListener('keydown', function(event) {
+	if(solving) return
 	let nextX = manX, nextY = manY
 	let nextX2 = manX, nextY2 = manY
 	switch(event.key) {
@@ -222,6 +223,7 @@ async function solve() {
 				manX = step[1]
 				manY = step[0]
 				drawAll()
+				moveNumber.innerHTML = Math.floor(moveNumber.innerHTML) + 1
 				await sleep(300)
 			}
 			if(!solving) return;
@@ -231,12 +233,13 @@ async function solve() {
 		manX = move.man[1]
 		manY = move.man[0]
 		drawAll()
-		await sleep(500)
+		moveNumber.innerHTML = Math.floor(moveNumber.innerHTML) + 1
+		await sleep(400)
 	}
 	solving = false
 }
 
-allDeadEnds = {}
+allDeadEnds = []
 function tryAllMoves() {
 	let move = new Move(grids, [manY, manX])
 	move.initBox()
@@ -246,7 +249,7 @@ function tryAllMoves() {
 	let possibleMoves = [move]
 	let cnt = 0;
 	while(possibleMoves.length > 0) {
-		if(++cnt > 500000) {
+		if(++cnt > 300000) {
 			alert('too many tries')
 			return;
 		}
@@ -254,6 +257,7 @@ function tryAllMoves() {
 		
 		if(pc.isWin()) {
 			win = true
+			tries.innerHTML = cnt
 			return pc;
 		}
 		let grid = pc.calcGrid()
@@ -275,10 +279,7 @@ function tryBox(move, grid, boxIndex, dx, dy, possibleMoves) {
 	let curBox = move.boxes[boxIndex]
 	let x = curBox[0], y = curBox[1]
 	let x2 = x + dx, y2 = y + dy
-	if((grid[x2][y2] == floor || grid[x2][y2] == passed) && grid[x-dx][y-dy] == passed) {
-		if(allDeadEnds[x2 + '-' + y2]) {
-			return
-		}
+	if((grid[x2][y2] == floor || grid[x2][y2] == passed) && grid[x-dx][y-dy] == passed && allDeadEnds[x2][y2] != -1) {
 		let next = move.clone()
 		next.last = move	// link them together
 		next.man = [x, y]
@@ -354,7 +355,11 @@ class Move {
 		ret.push(this.topleft[0])
 		ret.push(this.topleft[1])
 		ret.push('-')
-		for(let box of this.boxes) {
+		let boxes2 = [...this.boxes]	// put boxes in order by position
+		boxes2.sort((a, b) => {
+			return a[0] != b[0] ? a[0] - b[0] : a[1] - b[1]
+		})
+		for(let box of boxes2) {
 			ret.push(box[0])
 			ret.push(box[1])
 		}
@@ -400,7 +405,8 @@ class Move {
 		for(let i of targets) {
 			this.grid[i[1]][i[0]] = target
 		}
-		let d = {}
+		let d = cloneArray(this.grid)
+		// corders are deadends
 		for(let i = 0;i < this.grid.length;i++) {
 			for(let j = 0;j < this.grid[i].length;j++) {
 				if(this.grid[i][j] == floor) {
@@ -409,12 +415,49 @@ class Move {
 					let f3 = this.grid[i - 1][j] == wall
 					let f4 = this.grid[i][j - 1] == wall
 					if(f1 && f2 || f2 && f3 || f3 && f4 || f4 && f1) {
-						d[i + '-' + j] = 1
+						d[i][j] = -1
 					}
 				}
 			}
 		}
+		// bottom lines are deadends
+		for(let i = 0;i < this.grid.length;i++) {
+			for(let j = 0;j < this.grid[i].length;j++) {
+				if(this.grid[i][j] == box) {
+					this.grid[i][j] = floor
+				}
+			}
+		}
+		let possibles = []
+		for(let t of targets) {
+			possibles.push([t[1], t[0]])
+		}
+		for(let i = 0;i < 1000 && possibles.length > 0;i++) {
+			let cur = possibles.shift()
+			this.tryTarget(possibles, this.grid, cur, 1, 0)
+			this.tryTarget(possibles, this.grid, cur, -1, 0)
+			this.tryTarget(possibles, this.grid, cur, 0, 1)
+			this.tryTarget(possibles, this.grid, cur, 0, -1)
+		}
+
+		for(let i = 0;i < this.grid.length;i++) {
+			for(let j = 0;j < this.grid[i].length;j++) {
+				if(this.grid[i][j] == floor) {
+					d[i][j] = -1
+				}
+			}
+		}
+
 		return d
+	}
+
+	tryTarget(possibles, grid, cur, dx, dy) {
+		let x = cur[0] + dx
+		let y = cur[1] + dy
+		if(grid[x][y] == floor && grid[x + dx][y + dy] != wall) {
+			grid[x][y] = target
+			possibles.push([x, y])
+		}
 	}
 }
 
