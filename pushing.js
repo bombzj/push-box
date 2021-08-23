@@ -102,6 +102,7 @@ function init(c, boardW, boardH, exitX, exitY) {
 }
 
 function restart() {
+	solving = false
 	init(levels[curLevel], 6, 6, 7, 3)
 }
 
@@ -206,7 +207,9 @@ async function solve() {
 	historyMoves = {}
 	win = false
 	winMoves = []
+	let beginTime = Date.now()
 	let pc = tryAllMoves()
+	console.log('solving cost ' + (Date.now() - beginTime) + ' ms')
 	if(!pc) {
 		return;
 	}
@@ -215,7 +218,7 @@ async function solve() {
 		pc = pc.last
 	}
 	solving = true
-	for(let [index, move] of winMoves.entries()) {
+	for(let move of winMoves) {
 		if(move.direction) {
 			let path = getPath(grids, move.man[1] - move.direction[1], move.man[0] - move.direction[0])
 			for(let step of path) {
@@ -240,7 +243,7 @@ async function solve() {
 }
 
 allDeadEnds = []
-async function tryAllMoves() {
+function tryAllMoves() {
 	let move = new Move(grids, [manY, manX])
 	move.initBox()
 	let calcMove = move.clone()
@@ -249,29 +252,29 @@ async function tryAllMoves() {
 	let possibleMoves = [move]
 	let cnt = 0;
 	// prepare some data to reuse
-	calcGridData = []
-	for(let [index,i] of grids.entries()) {
-		calcGridData[index] = [...i]
-	}
-	
+	calcGridData.fill()
+	let dup = 0
 	while(possibleMoves.length > 0) {
 		if(++cnt > 500000) {
-			alert('too many tries')
+			console.log('too many tries ' + cnt)
+			console.log('removed duplication ' + dup)
 			return;
 		}
 		let pc = possibleMoves.shift()
 		
 		if(pc.isWin()) {
 			win = true
-			tries.innerHTML = cnt
+			console.log('solving count ' + cnt)
+			console.log('removed duplication ' + dup)
 			return pc;
 		}
-		if(cnt % 1000 == 0) {
-			tries.innerHTML = cnt
+		if(cnt % 10000 == 0) {
+			console.log('solving count ' + cnt)
 		}
 
 		let grid = pc.calcGrid()
 		if(!isNewMove(pc)) {
+			dup++
 			continue
 		}
 
@@ -289,7 +292,11 @@ function tryBox(move, grid, boxIndex, dx, dy, possibleMoves) {
 	let curBox = move.boxes[boxIndex]
 	let x = curBox[0], y = curBox[1]
 	let x2 = x + dx, y2 = y + dy
-	if((grid[x2][y2] == floor || grid[x2][y2] == passed) && grid[x-dx][y-dy] == passed && allDeadEnds[x2][y2] != -1) {
+	let x3 = x - dx, y3 = y - dy
+	let pos = (x << 4) + y
+	let pos2 = (x2 << 4) + y2
+	let pos3 = (x3 << 4) + y3
+	if((grid[pos2] == floor || grid[pos2] == passed) && grid[pos3] == passed && allDeadEnds[x2][y2] != -1) {
 		let next = move.clone()
 		next.last = move	// link them together
 		next.man = [x, y]
@@ -333,7 +340,7 @@ function sleep(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-calcGridData = []
+const calcGridData = new Uint8ClampedArray(256)
 // data for each move while solving
 class Move {
 	constructor(grid, man, boxes) {
@@ -363,8 +370,7 @@ class Move {
 	}
 	hash() {
 		let ret = new Array();
-		ret.push(this.topleft[0])
-		ret.push(this.topleft[1])
+		ret.push(this.topleft)
 		ret.push('-')
 		let boxes2 = [...this.boxes]	// put boxes in order by position
 		boxes2.sort((a, b) => {
@@ -383,37 +389,33 @@ class Move {
 	}
 	// get all places can go
 	calcGrid() {
-		this.topleft = [...this.man]
+		this.topleft = (this.man[0] << 4) + this.man[1]
 		for(let [index,i] of this.grid.entries()) {
-			let row = calcGridData[index]
 			for(let [index2,j] of i.entries()) {
-				row[index2] = j
+				calcGridData[(index << 4) + index2] = j
 			}
 		}
-		// calcGridData = []
-		// for(let [index,i] of this.grid.entries()) {
-		// 	calcGridData[index] = [...i]
-		// }
-		calcGridData[this.man[0]][this.man[1]] = passed
-		let possibles = [this.man]
+
+		const manPos = (this.man[0] << 4) + this.man[1]
+		calcGridData[manPos] = passed
+		let possibles = [manPos]
 		for(let i = 0;i < 1000 && possibles.length > 0;i++) {
 			let cur = possibles.shift()
-			this.tryPos(possibles, calcGridData, cur[0] + 1, cur[1])
-			this.tryPos(possibles, calcGridData, cur[0] - 1, cur[1])
-			this.tryPos(possibles, calcGridData, cur[0], cur[1] + 1)
-			this.tryPos(possibles, calcGridData, cur[0], cur[1] - 1)
+			this.tryPos(possibles, calcGridData, cur - 16)
+			this.tryPos(possibles, calcGridData, cur - 1)
+			this.tryPos(possibles, calcGridData, cur + 1)
+			this.tryPos(possibles, calcGridData, cur + 16)
 		}
 
 		return calcGridData
 	}
 
-	tryPos(possibles, grid, x, y) {
-		if(grid[x][y] == floor) {
-			grid[x][y] = passed
-			possibles.push([x, y])
-			if(x < this.topleft[0] || x == this.topleft[0] && y < this.topleft[1]) {
-				this.topleft[0] = x
-				this.topleft[1] = y
+	tryPos(possibles, grid, pos) {
+		if(grid[pos] == floor) {
+			grid[pos] = passed
+			possibles.push(pos)
+			if(pos < this.topleft) {
+				this.topleft = pos
 			}
 		}
 	}
