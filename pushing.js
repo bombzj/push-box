@@ -240,7 +240,7 @@ async function solve() {
 }
 
 allDeadEnds = []
-function tryAllMoves() {
+async function tryAllMoves() {
 	let move = new Move(grids, [manY, manX])
 	move.initBox()
 	let calcMove = move.clone()
@@ -248,8 +248,14 @@ function tryAllMoves() {
 
 	let possibleMoves = [move]
 	let cnt = 0;
+	// prepare some data to reuse
+	calcGridData = []
+	for(let [index,i] of grids.entries()) {
+		calcGridData[index] = [...i]
+	}
+	
 	while(possibleMoves.length > 0) {
-		if(++cnt > 300000) {
+		if(++cnt > 500000) {
 			alert('too many tries')
 			return;
 		}
@@ -260,6 +266,10 @@ function tryAllMoves() {
 			tries.innerHTML = cnt
 			return pc;
 		}
+		if(cnt % 1000 == 0) {
+			tries.innerHTML = cnt
+		}
+
 		let grid = pc.calcGrid()
 		if(!isNewMove(pc)) {
 			continue
@@ -323,6 +333,7 @@ function sleep(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+calcGridData = []
 // data for each move while solving
 class Move {
 	constructor(grid, man, boxes) {
@@ -370,23 +381,30 @@ class Move {
 		let boxes = cloneArray(this.boxes)
 		return new Move(grid, undefined, boxes)
 	}
+	// get all places can go
 	calcGrid() {
-		let grid = []
 		this.topleft = [...this.man]
 		for(let [index,i] of this.grid.entries()) {
-			grid[index] = [...i]
+			let row = calcGridData[index]
+			for(let [index2,j] of i.entries()) {
+				row[index2] = j
+			}
 		}
-		grid[this.man[0]][this.man[1]] = passed
+		// calcGridData = []
+		// for(let [index,i] of this.grid.entries()) {
+		// 	calcGridData[index] = [...i]
+		// }
+		calcGridData[this.man[0]][this.man[1]] = passed
 		let possibles = [this.man]
 		for(let i = 0;i < 1000 && possibles.length > 0;i++) {
 			let cur = possibles.shift()
-			this.tryPos(possibles, grid, cur[0] + 1, cur[1])
-			this.tryPos(possibles, grid, cur[0] - 1, cur[1])
-			this.tryPos(possibles, grid, cur[0], cur[1] + 1)
-			this.tryPos(possibles, grid, cur[0], cur[1] - 1)
+			this.tryPos(possibles, calcGridData, cur[0] + 1, cur[1])
+			this.tryPos(possibles, calcGridData, cur[0] - 1, cur[1])
+			this.tryPos(possibles, calcGridData, cur[0], cur[1] + 1)
+			this.tryPos(possibles, calcGridData, cur[0], cur[1] - 1)
 		}
 
-		return grid
+		return calcGridData
 	}
 
 	tryPos(possibles, grid, x, y) {
