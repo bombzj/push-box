@@ -204,7 +204,7 @@ async function solve() {
 		solving = false;
 		return;
 	}
-	historyMoves = {}
+	historyMoves = new Set()
 	win = false
 	winMoves = []
 	let beginTime = Date.now()
@@ -232,7 +232,13 @@ async function solve() {
 			if(!solving) return;
 		}
 
-		grids = move.grid
+		grids = []
+		for(let [index, i] of move.grid.entries()) {
+			let x = index % 16
+			let y = index >> 4
+			if(!grids[x]) grids[x] = []
+			grids[y][x] = i
+		}
 		manX = move.man[1]
 		manY = move.man[0]
 		drawAll()
@@ -243,21 +249,28 @@ async function solve() {
 }
 
 allDeadEnds = []
+var addedMove
 function tryAllMoves() {
-	let move = new Move(grids, [manY, manX])
+	let grid = new Uint8ClampedArray(176)
+	
+	for(let i = 0;i < grids.length;i++) {
+		for(let j = 0;j < grids[i].length;j++) {
+			grid[(i << 4) + j] = grids[i][j]
+		}
+	}
+	let move = new Move(grid, [manY, manX])
 	move.initBox()
-	let calcMove = move.clone()
-	allDeadEnds = calcMove.deadend()
+	allDeadEnds = move.deadend()
 
-	let possibleMoves = [move]
+	let possibleMoves = new LinkedList([move])
 	let cnt = 0;
 	// prepare some data to reuse
 	calcGridData.fill()
 	let dup = 0
+	addedMove = 0
 	while(possibleMoves.length > 0) {
 		if(++cnt > 500000) {
 			console.log('too many tries ' + cnt)
-			console.log('removed duplication ' + dup)
 			return;
 		}
 		let pc = possibleMoves.shift()
@@ -265,11 +278,12 @@ function tryAllMoves() {
 		if(pc.isWin()) {
 			win = true
 			console.log('solving count ' + cnt)
-			console.log('removed duplication ' + dup)
 			return pc;
 		}
 		if(cnt % 10000 == 0) {
-			console.log('solving count ' + cnt)
+			console.log('solving count ' + cnt + ' dup ' + dup + ' added ' + addedMove)
+			dup = 0
+			addedMove = 0
 		}
 
 		let grid = pc.calcGrid()
@@ -277,7 +291,7 @@ function tryAllMoves() {
 			dup++
 			continue
 		}
-
+		
 		for(let i = 0;i < pc.boxes.length;i++) {
 			tryBox(pc, grid, i, 1, 0, possibleMoves)
 			tryBox(pc, grid, i, -1, 0, possibleMoves)
@@ -291,18 +305,19 @@ function tryAllMoves() {
 function tryBox(move, grid, boxIndex, dx, dy, possibleMoves) {
 	let curBox = move.boxes[boxIndex]
 	let x = curBox[0], y = curBox[1]
-	let x2 = x + dx, y2 = y + dy
-	let x3 = x - dx, y3 = y - dy
 	let pos = (x << 4) + y
-	let pos2 = (x2 << 4) + y2
-	let pos3 = (x3 << 4) + y3
+	let dpos = (dx << 4) + dy
+	let x2 = x + dx, y2 = y + dy
+	let pos2 = pos + dpos
+	let pos3 = pos - dpos
 	if((grid[pos2] == floor || grid[pos2] == passed) && grid[pos3] == passed && allDeadEnds[x2][y2] != -1) {
 		let next = move.clone()
+		addedMove++
 		next.last = move	// link them together
 		next.man = [x, y]
 		next.boxes[boxIndex] = [x2, y2]
-		next.grid[x][y] = floor
-		next.grid[x2][y2] = box
+		next.grid[pos] = floor
+		next.grid[pos2] = box
 		next.direction = [dx, dy]
 		possibleMoves.push(next)
 	}
@@ -310,10 +325,10 @@ function tryBox(move, grid, boxIndex, dx, dy, possibleMoves) {
 
 function isNewMove(move) {
 	let hash = move.hash();
-	if(historyMoves[hash]) {
+	if(historyMoves.has(hash)) {
 		return false
 	}
-	historyMoves[hash] = 1;
+	historyMoves.add(hash)
 	return true;
 }
 
@@ -351,9 +366,9 @@ class Move {
 
 	initBox() {
 		this.boxes = []
-		for(let i = 0;i < this.grid.length;i++) {
-			for(let j = 0;j < this.grid[i].length;j++) {
-				if(this.grid[i][j] == box) {
+		for(let i = 0;i < grids.length;i++) {
+			for(let j = 0;j < grids[i].length;j++) {
+				if(grids[i][j] == box) {
 					this.boxes.push([i, j])
 				}
 			}
@@ -362,7 +377,7 @@ class Move {
 
 	isWin() {
 		for(let i of targets) {
-			if(this.grid[i[1]][i[0]] != box) {
+			if(this.grid[(i[1] << 4) + i[0]] != box) {
 				return false
 			}
 		}
@@ -370,8 +385,6 @@ class Move {
 	}
 	hash() {
 		let ret = new Array();
-		ret.push(this.topleft)
-		ret.push('-')
 		let boxes2 = [...this.boxes]	// put boxes in order by position
 		boxes2.sort((a, b) => {
 			return a[0] != b[0] ? a[0] - b[0] : a[1] - b[1]
@@ -380,10 +393,12 @@ class Move {
 			ret.push(box[0])
 			ret.push(box[1])
 		}
+		ret.push('-')
+		ret.push(this.topleft)
 		return ret.join('')
 	}
 	clone() {
-		let grid = cloneArray(this.grid)
+		let grid = new Uint8ClampedArray(this.grid)
 		let boxes = cloneArray(this.boxes)
 		return new Move(grid, undefined, boxes)
 	}
@@ -391,9 +406,7 @@ class Move {
 	calcGrid() {
 		this.topleft = (this.man[0] << 4) + this.man[1]
 		for(let [index,i] of this.grid.entries()) {
-			for(let [index2,j] of i.entries()) {
-				calcGridData[(index << 4) + index2] = j
-			}
+			calcGridData[index] = i
 		}
 
 		const manPos = (this.man[0] << 4) + this.man[1]
@@ -422,18 +435,20 @@ class Move {
 
 	// get all deadends
 	deadend() {
+		const grid = cloneArray(grids)
+
 		for(let i of targets) {
-			this.grid[i[1]][i[0]] = target
+			grid[i[1]][i[0]] = target
 		}
-		let d = cloneArray(this.grid)
+		let d = cloneArray(grid)
 		// corders are deadends
-		for(let i = 0;i < this.grid.length;i++) {
-			for(let j = 0;j < this.grid[i].length;j++) {
+		for(let i = 0;i < grid.length;i++) {
+			for(let j = 0;j < grid[i].length;j++) {
 				if(this.grid[i][j] == floor) {
-					let f1 = this.grid[i + 1][j] == wall
-					let f2 = this.grid[i][j + 1] == wall
-					let f3 = this.grid[i - 1][j] == wall
-					let f4 = this.grid[i][j - 1] == wall
+					let f1 = grid[i + 1][j] == wall
+					let f2 = grid[i][j + 1] == wall
+					let f3 = grid[i - 1][j] == wall
+					let f4 = grid[i][j - 1] == wall
 					if(f1 && f2 || f2 && f3 || f3 && f4 || f4 && f1) {
 						d[i][j] = -1
 					}
@@ -441,28 +456,28 @@ class Move {
 			}
 		}
 		// bottom lines are deadends
-		for(let i = 0;i < this.grid.length;i++) {
-			for(let j = 0;j < this.grid[i].length;j++) {
-				if(this.grid[i][j] == box) {
-					this.grid[i][j] = floor
+		for(let i = 0;i < grid.length;i++) {
+			for(let j = 0;j < grid[i].length;j++) {
+				if(grid[i][j] == box) {
+					grid[i][j] = floor
 				}
 			}
 		}
-		let possibles = []
+		const possibles = []
 		for(let t of targets) {
 			possibles.push([t[1], t[0]])
 		}
 		for(let i = 0;i < 1000 && possibles.length > 0;i++) {
 			let cur = possibles.shift()
-			this.tryTarget(possibles, this.grid, cur, 1, 0)
-			this.tryTarget(possibles, this.grid, cur, -1, 0)
-			this.tryTarget(possibles, this.grid, cur, 0, 1)
-			this.tryTarget(possibles, this.grid, cur, 0, -1)
+			this.tryTarget(possibles, grid, cur, 1, 0)
+			this.tryTarget(possibles, grid, cur, -1, 0)
+			this.tryTarget(possibles, grid, cur, 0, 1)
+			this.tryTarget(possibles, grid, cur, 0, -1)
 		}
 
-		for(let i = 0;i < this.grid.length;i++) {
-			for(let j = 0;j < this.grid[i].length;j++) {
-				if(this.grid[i][j] == floor) {
+		for(let i = 0;i < grid.length;i++) {
+			for(let j = 0;j < grid[i].length;j++) {
+				if(grid[i][j] == floor) {
 					d[i][j] = -1
 				}
 			}
