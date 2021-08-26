@@ -206,9 +206,10 @@ async function solve() {
 	}
 	historyMoves = new Set()
 	win = false
+	solving = true
 	winMoves = []
 	let beginTime = Date.now()
-	let pc = tryAllMoves()
+	let pc = await tryAllMoves()
 	console.log('solving cost ' + (Date.now() - beginTime) + ' ms')
 	if(!pc) {
 		return;
@@ -217,7 +218,6 @@ async function solve() {
 		winMoves.unshift(pc)
 		pc = pc.last
 	}
-	solving = true
 	for(let move of winMoves) {
 		if(move.direction) {
 			let path = getPath(grids, move.man[1] - move.direction[1], move.man[0] - move.direction[0])
@@ -232,12 +232,22 @@ async function solve() {
 			if(!solving) return;
 		}
 
-		grids = []
-		for(let [index, i] of move.grid.entries()) {
-			let x = index % 16
-			let y = index >> 4
-			if(!grids[x]) grids[x] = []
-			grids[y][x] = i
+		// grids = []
+		// for(let [index, i] of move.grid.entries()) {
+		// 	let x = index % 16
+		// 	let y = index >> 4
+		// 	if(!grids[x]) grids[x] = []
+		// 	grids[y][x] = i
+		// }
+		for(let i = 0;i < grids.length;i++) {
+			for(let j = 0;j < grids[i].length;j++) {
+				if(grids[i][j] == box) {
+					grids[i][j] = floor
+				}
+			}
+		}
+		for(let i of move.boxes) {
+			grids[i >> 4][i % 16] = box
 		}
 		manX = move.man[1]
 		manY = move.man[0]
@@ -250,7 +260,7 @@ async function solve() {
 
 allDeadEnds = []
 var addedMove
-function tryAllMoves() {
+async function tryAllMoves() {
 	let grid = new Uint8ClampedArray(176)
 	
 	for(let i = 0;i < grids.length;i++) {
@@ -268,8 +278,9 @@ function tryAllMoves() {
 	calcGridData.fill()
 	let dup = 0
 	addedMove = 0
-	while(possibleMoves.length > 0) {
-		if(++cnt > 500000) {
+	let umove = 0	// unique possibilities
+	while(possibleMoves.length > 0 && solving) {
+		if(++cnt > 10000000) {
 			console.log('too many tries ' + cnt)
 			return;
 		}
@@ -277,13 +288,14 @@ function tryAllMoves() {
 		
 		if(pc.isWin()) {
 			win = true
-			console.log('solving count ' + cnt)
+			console.log('solving count ' + cnt + ' uniq ' + umove)
 			return pc;
 		}
 		if(cnt % 10000 == 0) {
-			console.log('solving count ' + cnt + ' dup ' + dup + ' added ' + addedMove)
+			console.log('solving count ' + cnt + ' dup ' + dup + ' added ' + addedMove + ' uniq ' + umove + ' left ' + possibleMoves.length)
 			dup = 0
 			addedMove = 0
+			await sleep(1)
 		}
 
 		let grid = pc.calcGrid()
@@ -291,6 +303,7 @@ function tryAllMoves() {
 			dup++
 			continue
 		}
+		umove++
 		
 		for(let i = 0;i < pc.boxes.length;i++) {
 			tryBox(pc, grid, i, 1, 0, possibleMoves)
@@ -298,13 +311,14 @@ function tryAllMoves() {
 			tryBox(pc, grid, i, 0, 1, possibleMoves)
 			tryBox(pc, grid, i, 0, -1, possibleMoves)
 		}
+		delete pc.grid
 	}
 	
 }
 
 function tryBox(move, grid, boxIndex, dx, dy, possibleMoves) {
 	let curBox = move.boxes[boxIndex]
-	let x = curBox[0], y = curBox[1]
+	let x = curBox >> 4, y = curBox % 16
 	let pos = (x << 4) + y
 	let dpos = (dx << 4) + dy
 	let x2 = x + dx, y2 = y + dy
@@ -315,7 +329,7 @@ function tryBox(move, grid, boxIndex, dx, dy, possibleMoves) {
 		addedMove++
 		next.last = move	// link them together
 		next.man = [x, y]
-		next.boxes[boxIndex] = [x2, y2]
+		next.boxes[boxIndex] = pos2
 		next.grid[pos] = floor
 		next.grid[pos2] = box
 		next.direction = [dx, dy]
@@ -355,7 +369,7 @@ function sleep(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-const calcGridData = new Uint8ClampedArray(256)
+const calcGridData = new Uint8ClampedArray(160)
 // data for each move while solving
 class Move {
 	constructor(grid, man, boxes) {
@@ -365,13 +379,17 @@ class Move {
 	}
 
 	initBox() {
-		this.boxes = []
+		let boxes = []
 		for(let i = 0;i < grids.length;i++) {
 			for(let j = 0;j < grids[i].length;j++) {
 				if(grids[i][j] == box) {
-					this.boxes.push([i, j])
+					boxes.push([i, j])
 				}
 			}
+		}
+		this.boxes = new Uint8ClampedArray(boxes.length)
+		for(let [index, i] of boxes.entries()) {
+			this.boxes[index] = (i[0] << 4) + i[1]
 		}
 	}
 
@@ -386,12 +404,9 @@ class Move {
 	hash() {
 		let ret = new Array();
 		let boxes2 = [...this.boxes]	// put boxes in order by position
-		boxes2.sort((a, b) => {
-			return a[0] != b[0] ? a[0] - b[0] : a[1] - b[1]
-		})
+		boxes2.sort()
 		for(let box of boxes2) {
-			ret.push(box[0])
-			ret.push(box[1])
+			ret.push(box)
 		}
 		ret.push('-')
 		ret.push(this.topleft)
@@ -399,7 +414,7 @@ class Move {
 	}
 	clone() {
 		let grid = new Uint8ClampedArray(this.grid)
-		let boxes = cloneArray(this.boxes)
+		let boxes = new Uint8ClampedArray(this.boxes)
 		return new Move(grid, undefined, boxes)
 	}
 	// get all places can go
