@@ -220,7 +220,8 @@ async function solve() {
 	}
 	for(let move of winMoves) {
 		if(move.direction) {
-			let path = getPath(grids, (move.man % 16) - (move.direction % 16), (move.man >> 4) - (move.direction >> 4))
+			let dy = move.direction > 0 ? (move.direction >> 4) : -(-move.direction >> 4)
+			let path = getPath(grids, (move.man % 16) - (move.direction % 16), (move.man >> 4) - dy)
 			for(let step of path) {
 				if(!solving) return;
 				manX = step[1]
@@ -391,7 +392,7 @@ class Move {
 				}
 			}
 		}
-		this.boxes = new Uint8ClampedArray(boxes.length)
+		this.boxes = new Array(boxes.length)
 		for(let [index, i] of boxes.entries()) {
 			this.boxes[index] = (i[0] << 4) + i[1]
 		}
@@ -406,18 +407,12 @@ class Move {
 		return true
 	}
 	hash() {
-		let ret = new Array();
-		let boxes2 = [...this.boxes]	// put boxes in order by position
-		boxes2.sort()
-		for(let box of boxes2) {
-			ret.push(box)
-		}
-		ret.push('-')
-		ret.push(this.topleft)
+		this.boxes.sort()
+		let ret = [...this.boxes, this.topleft]	// put boxes in order by position
 		return ret.join('')
 	}
 	clone() {
-		let boxes = new Uint8ClampedArray(this.boxes)
+		let boxes = [...this.boxes]
 		return new Move(undefined, boxes)
 	}
 	// get all places can go
