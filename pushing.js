@@ -220,7 +220,7 @@ async function solve() {
 	}
 	for(let move of winMoves) {
 		if(move.direction) {
-			let path = getPath(grids, move.man[1] - move.direction[1], move.man[0] - move.direction[0])
+			let path = getPath(grids, (move.man % 16) - (move.direction % 16), (move.man >> 4) - (move.direction >> 4))
 			for(let step of path) {
 				if(!solving) return;
 				manX = step[1]
@@ -249,8 +249,8 @@ async function solve() {
 		for(let i of move.boxes) {
 			grids[i >> 4][i % 16] = box
 		}
-		manX = move.man[1]
-		manY = move.man[0]
+		manX = move.man % 16
+		manY = move.man >> 4
 		drawAll()
 		moveNumber.innerHTML = Math.floor(moveNumber.innerHTML) + 1
 		await sleep(400)
@@ -261,14 +261,14 @@ async function solve() {
 allDeadEnds = []
 var addedMove
 async function tryAllMoves() {
-	let grid = new Uint8ClampedArray(176)
-	
 	for(let i = 0;i < grids.length;i++) {
 		for(let j = 0;j < grids[i].length;j++) {
-			grid[(i << 4) + j] = grids[i][j]
+			let g = grids[i][j]
+			if(g == box) g = floor
+			gridData[(i << 4) + j + gridDataLength] = g
 		}
 	}
-	let move = new Move(grid, [manY, manX])
+	let move = new Move((manY << 4) + manX)
 	move.initBox()
 	allDeadEnds = move.deadend()
 
@@ -280,11 +280,16 @@ async function tryAllMoves() {
 	addedMove = 0
 	let umove = 0	// unique possibilities
 	while(possibleMoves.length > 0 && solving) {
-		if(++cnt > 10000000) {
+		if(++cnt > 30000000) {
 			console.log('too many tries ' + cnt)
 			return;
 		}
 		let pc = possibleMoves.shift()
+
+		gridData.copyWithin(0, gridDataLength, gridDataLength * 2)
+		for(let b of pc.boxes) {
+			gridData[b] = box
+		}
 		
 		if(pc.isWin()) {
 			win = true
@@ -328,11 +333,9 @@ function tryBox(move, grid, boxIndex, dx, dy, possibleMoves) {
 		let next = move.clone()
 		addedMove++
 		next.last = move	// link them together
-		next.man = [x, y]
+		next.man = pos
 		next.boxes[boxIndex] = pos2
-		next.grid[pos] = floor
-		next.grid[pos2] = box
-		next.direction = [dx, dy]
+		next.direction = dpos
 		possibleMoves.push(next)
 	}
 }
@@ -369,11 +372,12 @@ function sleep(ms) {
 	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-const calcGridData = new Uint8ClampedArray(160)
+const gridDataLength = 176
+const calcGridData = new Uint8ClampedArray(gridDataLength)
+const gridData = new Uint8ClampedArray(gridDataLength * 2)	// first half to use and second half to copy from
 // data for each move while solving
 class Move {
-	constructor(grid, man, boxes) {
-		this.grid = grid
+	constructor(man, boxes) {
 		this.man = man
 		this.boxes = boxes
 	}
@@ -395,7 +399,7 @@ class Move {
 
 	isWin() {
 		for(let i of targets) {
-			if(this.grid[(i[1] << 4) + i[0]] != box) {
+			if(gridData[(i[1] << 4) + i[0]] != box) {
 				return false
 			}
 		}
@@ -413,18 +417,17 @@ class Move {
 		return ret.join('')
 	}
 	clone() {
-		let grid = new Uint8ClampedArray(this.grid)
 		let boxes = new Uint8ClampedArray(this.boxes)
-		return new Move(grid, undefined, boxes)
+		return new Move(undefined, boxes)
 	}
 	// get all places can go
 	calcGrid() {
-		this.topleft = (this.man[0] << 4) + this.man[1]
-		for(let [index,i] of this.grid.entries()) {
+		this.topleft = this.man
+		for(let [index,i] of gridData.entries()) {
 			calcGridData[index] = i
 		}
 
-		const manPos = (this.man[0] << 4) + this.man[1]
+		const manPos = this.man
 		calcGridData[manPos] = passed
 		let possibles = [manPos]
 		for(let i = 0;i < 1000 && possibles.length > 0;i++) {
@@ -459,7 +462,7 @@ class Move {
 		// corders are deadends
 		for(let i = 0;i < grid.length;i++) {
 			for(let j = 0;j < grid[i].length;j++) {
-				if(this.grid[i][j] == floor) {
+				if(grid[i][j] == floor) {
 					let f1 = grid[i + 1][j] == wall
 					let f2 = grid[i][j + 1] == wall
 					let f3 = grid[i - 1][j] == wall
